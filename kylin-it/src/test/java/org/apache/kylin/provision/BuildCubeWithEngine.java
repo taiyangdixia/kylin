@@ -123,7 +123,7 @@ public class BuildCubeWithEngine {
                 throw new IOException("mkdir fails");
             }
         } catch (IOException e) {
-            throw new RuntimeException("failed to create kylin.hdfs.working.dir, Please make sure the user has right to access " + KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory(), e);
+            throw new RuntimeException("failed to create kylin.env.hdfs-working-dir, Please make sure the user has right to access " + KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory(), e);
         }
     }
 
@@ -245,10 +245,6 @@ public class BuildCubeWithEngine {
                 countDownLatch.countDown();
             }
         }
-    }
-
-    private void assertJobSuccess() {
-
     }
 
     @SuppressWarnings("unused")
@@ -433,6 +429,7 @@ public class BuildCubeWithEngine {
         return 0;
     }
 
+    @SuppressWarnings("unused")
     private void checkHFilesInHBase(CubeSegment segment) throws IOException {
         Configuration conf = HBaseConfiguration.create(HadoopUtil.getCurrentConfiguration());
         String tableName = segment.getStorageLocationIdentifier();

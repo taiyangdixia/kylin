@@ -67,7 +67,7 @@ KylinApp.factory('VdmUtil', function ($modal, $timeout, $location, $anchorScroll
 
     SCToFloat:function(data){
       var resultValue = "";
-      if (data.indexOf('E') != -1){
+      if (data&&data.indexOf('E') != -1){
         var regExp = new RegExp('^((\\d+.?\\d+)[Ee]{1}(\\d+))$', 'ig');
         var result = regExp.exec(data);
         var power = "";
@@ -83,6 +83,64 @@ KylinApp.factory('VdmUtil', function ($modal, $timeout, $location, $anchorScroll
         }
       }
       return resultValue;
+    },
+    getFilterObjectListByAndFilterVal:function(objList,key,value,matchkey,matchval){
+       var len=objList&&objList.length|| 0,newArr=[];
+       for(var i=0;i<len;i++){
+          if(!key||value===objList[i][key]||(angular.isArray(value)&&value.indexOf(objList[i][key])>-1)){
+             if(matchkey){
+               if(matchval==objList[i][matchkey]||(angular.isArray(matchval)&&value.indexOf(objList[i][matchkey])>-1)){
+                 newArr.push(objList[i])
+               }
+             }else{
+               newArr.push(objList[i])
+             }
+          }
+       }
+      return newArr;
+    },
+    getFilterObjectListByOrFilterVal:function(objList,key,val,orKey,orVal){
+      var len=objList&&objList.length|| 0,newArr=[];
+      for(var i=0;i<len;i++){
+        if((key&&val===objList[i][key])||(orKey&&objList[i][orKey]===orVal)){
+          newArr.push(objList[i]);
+        }
+      }
+      return newArr;
+    },
+    removeFilterObjectList:function(objList,key,val,orKey,orVal){
+      var len=objList&&objList.length|| 0,newArr=[];
+      for(var i=0;i<len;i++){
+        if(key&&val!=objList[i][key]){
+          newArr.push(objList[i]);
+        }
+      }
+      return newArr;
+    },
+    //过滤对象中的空值
+    filterNullValInObj:function(needFilterObj){
+      var newFilterObj,newObj;
+      if(typeof needFilterObj=='string'){
+        newObj=angular.fromJson(needFilterObj);
+      }else{
+        newObj=angular.extend({},needFilterObj);
+      }
+      function filterData(data){
+        var obj=data;
+        for(var i in obj){
+          if(obj[i]===null){
+            if(Object.prototype.toString.call(obj)=='[object Object]'){
+              delete obj[i];
+            }
+          }
+          else if(typeof obj[i]=== 'object'){
+            obj[i]=filterData(obj[i]);
+          }
+        }
+        return obj;
+      }
+      return angular.toJson(filterData(newObj),true);
     }
+
   }
 });

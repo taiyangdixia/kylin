@@ -36,9 +36,13 @@ import org.apache.hadoop.io.Text;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.ByteArray;
 import org.apache.kylin.common.util.Bytes;
+import org.apache.kylin.common.util.DateFormat;
+import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.cube.model.CubeDesc;
+import org.apache.kylin.dict.DictionaryGenerator;
+import org.apache.kylin.dict.IDictionaryBuilder;
 import org.apache.kylin.engine.mr.KylinReducer;
 import org.apache.kylin.engine.mr.common.AbstractHadoopJob;
 import org.apache.kylin.engine.mr.common.BatchConstants;
@@ -53,7 +57,9 @@ import com.google.common.collect.Maps;
 
 /**
  */
-public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWritable, Text> {
+public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableKey, Text, NullWritable, Text> {
+
+    protected static final Logger logger = LoggerFactory.getLogger(FactDistinctColumnsReducer.class);
 
     private List<TblColRef> columnList;
     private String statisticsOutput = null;
@@ -66,18 +72,23 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
     private List<ByteArray> colValues;
     private TblColRef col = null;
     private boolean isStatistics = false;
-    private boolean isPartitionCol = false;
     private KylinConfig cubeConfig;
     private int uhcReducerCount;
-    private Map<Integer, Integer> ReducerIdToColumnIndex = new HashMap<>();
+    private Map<Integer, Integer> reducerIdToColumnIndex = new HashMap<>();
     private int taskId;
 
-    protected static final Logger logger = LoggerFactory.getLogger(FactDistinctColumnsReducer.class);
+    //local build dict
+    private boolean isReducerLocalBuildDict;
+    private IDictionaryBuilder builder;
+    private long timeMaxValue = Long.MIN_VALUE;
+    private long timeMinValue = Long.MAX_VALUE;
+    public static final String DICT_FILE_POSTFIX = ".rldict";
+    public static final String PARTITION_COL_INFO_FILE_POSTFIX = ".pci";
+    private boolean isPartitionCol = false;
 
     @Override
     protected void setup(Context context) throws IOException {
         super.bindCurrentConfiguration(context.getConfiguration());
-
         Configuration conf = context.getConfiguration();
         KylinConfig config = AbstractHadoopJob.loadKylinPropsAndMetadata();
         String cubeName = conf.get(BatchConstants.CFG_CUBE_NAME);
@@ -107,11 +118,17 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
             col = cubeDesc.getModel().getPartitionDesc().getPartitionDateColumnRef();
             colValues = Lists.newLinkedList();
         } else {
-            // col
+            // normal col
             isStatistics = false;
-            isPartitionCol = false;
-            col = columnList.get(ReducerIdToColumnIndex.get(taskId));
+            col = columnList.get(reducerIdToColumnIndex.get(taskId));
             colValues = Lists.newLinkedList();
+            
+            // local build dict
+            isReducerLocalBuildDict = config.isReducerLocalBuildDict();
+            if (col != null && isReducerLocalBuildDict) {
+                builder = DictionaryGenerator.newDictionaryBuilder(col.getType());
+                builder.init(null, 0);
+            }
         }
     }
 
@@ -119,10 +136,10 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
         int[] uhcIndex = CubeManager.getInstance(config).getUHCIndex(cubeDesc);
         int count = 0;
         for (int i = 0; i < uhcIndex.length; i++) {
-            ReducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + i, i);
+            reducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + i, i);
             if (uhcIndex[i] == 1) {
                 for (int j = 1; j < uhcReducerCount; j++) {
-                    ReducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + j + i, i);
+                    reducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + j + i, i);
                 }
                 count++;
             }
@@ -130,9 +147,9 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
     }
 
     @Override
-    public void doReduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
-
-        if (isStatistics == true) {
+    public void doReduce(SelfDefineSortableKey skey, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+        Text key = skey.getText();
+        if (isStatistics) {
             // for hll
             long cuboidId = Bytes.toLong(key.getBytes(), 1, Bytes.SIZEOF_LONG);
             for (Text value : values) {
@@ -152,15 +169,26 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
                     cuboidHLLMap.put(cuboidId, hll);
                 }
             }
+        } else if (isPartitionCol) {
+            // partition col
+            String value = Bytes.toString(key.getBytes(), 1, key.getLength() - 1);
+            long time = DateFormat.stringToMillis(value);
+            timeMinValue = Math.min(timeMinValue, time);
+            timeMaxValue = Math.max(timeMaxValue, time);
         } else {
-            colValues.add(new ByteArray(Bytes.copy(key.getBytes(), 1, key.getLength() - 1)));
-            if (colValues.size() == 1000000) { //spill every 1 million
-                logger.info("spill values to disk...");
-                outputDistinctValues(col, colValues, context);
-                colValues.clear();
+            // normal col
+            if (isReducerLocalBuildDict) {
+                String value = Bytes.toString(key.getBytes(), 1, key.getLength() - 1);
+                builder.addValue(value);
+            } else {
+                colValues.add(new ByteArray(Bytes.copy(key.getBytes(), 1, key.getLength() - 1)));
+                if (colValues.size() == 1000000) { //spill every 1 million
+                    logger.info("spill values to disk...");
+                    outputDistinctValues(col, colValues, context);
+                    colValues.clear();
+                }
             }
         }
-
     }
 
     private void outputDistinctValues(TblColRef col, Collection<ByteArray> values, Context context) throws IOException {
@@ -194,15 +222,50 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
         }
     }
 
+    private void outputDict(TblColRef col, Dictionary<String> dict, Context context) throws IOException {
+        final String fileName = col.getName() + DICT_FILE_POSTFIX;
+        FSDataOutputStream out = getOutputStream(context, fileName);
+        try {
+            String dictClassName = dict.getClass().getName();
+            out.writeUTF(dictClassName);
+            dict.write(out);
+            logger.info("reducer id is:+" + taskId + " colName:" + col.getName() + "  writing dict at file : " + fileName + "  dict class:" + dictClassName);
+        } finally {
+            IOUtils.closeQuietly(out);
+        }
+    }
+
+    private void outputPartitionInfo(Context context) throws IOException {
+        final String fileName = col.getName() + PARTITION_COL_INFO_FILE_POSTFIX;
+        FSDataOutputStream out = getOutputStream(context, fileName);
+        try {
+            out.writeLong(timeMinValue);
+            out.writeLong(timeMaxValue);
+            logger.info("write partition info for col : " + col.getName() + "  minValue:" + timeMinValue + " maxValue:" + timeMaxValue);
+        } finally {
+            IOUtils.closeQuietly(out);
+        }
+    }
+
+    private FSDataOutputStream getOutputStream(Context context, String outputFileName) throws IOException {
+        final Configuration conf = context.getConfiguration();
+        final FileSystem fs = FileSystem.get(conf);
+        final String outputPath = conf.get(BatchConstants.CFG_OUTPUT_PATH);
+        final Path colDir = new Path(outputPath, col.getName());
+        final Path outputFile = new Path(colDir, outputFileName);
+        FSDataOutputStream out = null;
+        if (!fs.exists(colDir)) {
+            fs.mkdirs(colDir);
+        }
+        fs.deleteOnExit(outputFile);
+        out = fs.create(outputFile);
+        return out;
+    }
+
     @Override
     protected void doCleanup(Context context) throws IOException, InterruptedException {
-        if (isStatistics == false) {
-            if (colValues.size() > 0) {
-                outputDistinctValues(col, colValues, context);
-                colValues.clear();
-            }
-        } else {
-            //output the hll info;
+        if (isStatistics) {
+            // output the hll info
             long grandTotal = 0;
             for (HyperLogLogPlusCounter hll : cuboidHLLMap.values()) {
                 grandTotal += hll.getCountEstimate();
@@ -214,6 +277,20 @@ public class FactDistinctColumnsReducer extends KylinReducer<Text, Text, NullWri
             writeMapperAndCuboidStatistics(context); // for human check
             CubeStatsWriter.writeCuboidStatistics(context.getConfiguration(), new Path(statisticsOutput), //
                     cuboidHLLMap, samplingPercentage, mapperNumber, mapperOverlapRatio);
+        } else if (isPartitionCol) {
+            // partition col
+            outputPartitionInfo(context);
+        } else {
+            // normal col
+            if (isReducerLocalBuildDict) {
+                Dictionary<String> dict = builder.build();
+                outputDict(col, dict, context);
+            } else {
+                if (colValues.size() > 0) {
+                    outputDistinctValues(col, colValues, context);
+                    colValues.clear();
+                }
+            }
         }
     }
 

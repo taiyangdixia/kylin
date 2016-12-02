@@ -30,12 +30,12 @@ import org.apache.kylin.cube.cuboid.CuboidScheduler;
 import org.apache.kylin.engine.mr.common.BatchConstants;
 import org.apache.kylin.measure.BufferedMeasureCodec;
 import org.apache.kylin.measure.hllc.HyperLogLogPlusCounter;
+import org.apache.kylin.metadata.model.TblColRef;
 
 import com.google.common.collect.Lists;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-import org.apache.kylin.metadata.model.TblColRef;
 
 /**
  */
@@ -97,15 +97,8 @@ public class FactDistinctHiveColumnsMapper<KEYIN> extends FactDistinctColumnsMap
                 // if partition col not on cube, no need
                 needFetchPartitionCol = false;
             } else {
-                for (int x : dictionaryColumnIndex) {
-                    if (x == partitionColumnIndex) {
-                        // if partition col already build dict, no need
-                        needFetchPartitionCol = false;
-                        break;
-                    }
-                }
+                needFetchPartitionCol = true;
             }
-
         }
     }
 
@@ -150,11 +143,13 @@ public class FactDistinctHiveColumnsMapper<KEYIN> extends FactDistinctColumnsMap
                     //for the uhc
                     reducerIndex = columnIndexToReducerBeginId.get(i) + (fieldValue.hashCode() & 0x7fffffff) % uhcReducerCount;
                 }
-
                 keyBuffer.put(Bytes.toBytes(reducerIndex)[3]);
                 keyBuffer.put(Bytes.toBytes(fieldValue));
                 outputKey.set(keyBuffer.array(), offset, keyBuffer.position() - offset);
-                context.write(outputKey, EMPTY_TEXT);
+                sortableKey.setText(outputKey);
+                //judge type
+                sortableKey.setTypeIdByDatatype(factDictCols.get(i).getType());
+                context.write(sortableKey, EMPTY_TEXT);
             }
         } catch (Exception ex) {
             handleErrorRecord(row, ex);
@@ -172,7 +167,9 @@ public class FactDistinctHiveColumnsMapper<KEYIN> extends FactDistinctColumnsMap
                     keyBuffer.put(MARK_FOR_PARTITION_COL);
                     keyBuffer.put(Bytes.toBytes(fieldValue));
                     outputKey.set(keyBuffer.array(), offset, keyBuffer.position() - offset);
-                    context.write(outputKey, EMPTY_TEXT);
+                    sortableKey.setText(outputKey);
+                    sortableKey.setTypeId((byte) 0);
+                    context.write(sortableKey, EMPTY_TEXT);
                 }
             }
         }
@@ -221,7 +218,9 @@ public class FactDistinctHiveColumnsMapper<KEYIN> extends FactDistinctColumnsMap
                 hllBuf.clear();
                 hll.writeRegisters(hllBuf);
                 outputValue.set(hllBuf.array(), 0, hllBuf.position());
-                context.write(outputKey, outputValue);
+                sortableKey.setText(outputKey);
+                sortableKey.setTypeId((byte) 0);
+                context.write(sortableKey, outputValue);
             }
         }
     }

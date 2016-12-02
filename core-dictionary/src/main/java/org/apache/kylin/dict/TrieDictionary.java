@@ -126,7 +126,6 @@ public class TrieDictionary<T> extends Dictionary<T> {
             else
                 throw new RuntimeException(e);
         }
-
         if (enableValueCache) {
             valueToIdCache = new SoftReference<Map>(new ConcurrentHashMap());
             idToValueCache = new SoftReference<Object[]>(new Object[nValues]);

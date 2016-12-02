@@ -89,7 +89,7 @@ public class BuiltInFunctionTransformer implements ITupleFilterTransformer {
         if (dict == null)
             return null;
 
-        CompareTupleFilter translated = new CompareTupleFilter(FilterOperatorEnum.IN);
+        CompareTupleFilter translated = new CompareTupleFilter(builtInFunctionTupleFilter.isReversed() ? FilterOperatorEnum.NOTIN : FilterOperatorEnum.IN);
         translated.addChild(new ColumnTupleFilter(columnRef));
 
         try {
@@ -121,7 +121,7 @@ public class BuiltInFunctionTransformer implements ITupleFilterTransformer {
         if (dict == null)
             return null;
 
-        CompareTupleFilter translated = new CompareTupleFilter(FilterOperatorEnum.IN);
+        CompareTupleFilter translated = new CompareTupleFilter(builtInFunctionTupleFilter.isReversed() ? FilterOperatorEnum.NOTIN : FilterOperatorEnum.IN);
         translated.addChild(new ColumnTupleFilter(columnRef));
 
         try {

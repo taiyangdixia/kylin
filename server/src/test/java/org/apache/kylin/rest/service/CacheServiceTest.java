@@ -38,7 +38,7 @@ import org.apache.kylin.cube.model.CubeDesc;
 import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.cachesync.Broadcaster;
 import org.apache.kylin.metadata.model.DataModelDesc;
-import org.apache.kylin.metadata.model.LookupDesc;
+import org.apache.kylin.metadata.model.JoinTableDesc;
 import org.apache.kylin.metadata.model.TableDesc;
 import org.apache.kylin.metadata.project.ProjectInstance;
 import org.apache.kylin.metadata.project.ProjectManager;
@@ -73,9 +73,9 @@ public class CacheServiceTest extends LocalFileMetadataTestCase {
     public static void beforeClass() throws Exception {
         staticCreateTestMetadata();
         configA = KylinConfig.getInstanceFromEnv();
-        configA.setProperty("kylin.rest.servers", "localhost:7777");
+        configA.setProperty("kylin.server.cluster-servers", "localhost:7777");
         configB = KylinConfig.createKylinConfig(configA);
-        configB.setProperty("kylin.rest.servers", "localhost:7777");
+        configB.setProperty("kylin.server.cluster-servers", "localhost:7777");
         configB.setMetadataUrl("../examples/test_metadata");
 
         server = new Server(7777);
@@ -203,11 +203,11 @@ public class CacheServiceTest extends LocalFileMetadataTestCase {
         final Broadcaster broadcaster = Broadcaster.getInstance(configA);
         broadcaster.getCounterAndClear();
 
-        getStore().deleteResource("/cube/a_whole_new_cube.json");
+        getStore().deleteResource("/cube/test_kylin_cube_a_new_one.json");
 
         //create cube
 
-        final String cubeName = "a_whole_new_cube";
+        final String cubeName = "test_kylin_cube_a_new_one";
         final CubeManager cubeManager = getCubeManager(configA);
         final CubeManager cubeManagerB = getCubeManager(configB);
         final ProjectManager projectManager = getProjectManager(configA);
@@ -277,7 +277,7 @@ public class CacheServiceTest extends LocalFileMetadataTestCase {
         assertTrue(cubeDescManager.getCubeDesc(cubeDescName) == null);
         assertTrue(cubeDescManagerB.getCubeDesc(cubeDescName) == null);
 
-        getStore().deleteResource("/cube/a_whole_new_cube.json");
+        getStore().deleteResource("/cube/test_kylin_cube_a_new_one.json");
     }
 
     private TableDesc createTestTableDesc() {
@@ -289,6 +289,7 @@ public class CacheServiceTest extends LocalFileMetadataTestCase {
         return tableDesc;
     }
 
+    @SuppressWarnings("deprecation")
     @Test
     public void testMetaCRUD() throws Exception {
         final MetadataManager metadataManager = MetadataManager.getInstance(configA);
@@ -320,14 +321,13 @@ public class CacheServiceTest extends LocalFileMetadataTestCase {
         waitForCounterAndClear(2);
         assertEquals(dataModelDesc.getName(), metadataManagerB.getDataModelDesc(dataModelName).getName());
 
-        final LookupDesc[] lookups = dataModelDesc.getLookups();
+        final JoinTableDesc[] lookups = dataModelDesc.getJoinTables();
         assertTrue(lookups.length > 0);
-        dataModelDesc.setLookups(lookups);
         metadataManager.updateDataModelDesc(dataModelDesc);
         //only one for data model update
         assertEquals(1, broadcaster.getCounterAndClear());
         waitForCounterAndClear(1);
-        assertEquals(dataModelDesc.getLookups().length, metadataManagerB.getDataModelDesc(dataModelName).getLookups().length);
+        assertEquals(dataModelDesc.getJoinTables().length, metadataManagerB.getDataModelDesc(dataModelName).getJoinTables().length);
 
     }
 

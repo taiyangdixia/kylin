@@ -30,6 +30,7 @@ import org.apache.hive.hcatalog.data.HCatRecord;
 import org.apache.hive.hcatalog.mapreduce.HCatInputFormat;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.BufferedLogger;
+import org.apache.kylin.common.util.HiveCmdBuilder;
 import org.apache.kylin.common.util.Pair;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
@@ -50,7 +51,7 @@ import org.apache.kylin.job.execution.ExecuteResult;
 import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.model.IJoinedFlatTableDesc;
 import org.apache.kylin.metadata.model.ISegment;
-import org.apache.kylin.metadata.model.LookupDesc;
+import org.apache.kylin.metadata.model.JoinTableDesc;
 import org.apache.kylin.metadata.model.TableDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,7 +165,7 @@ public class HiveMRInput implements IMRInput {
             MetadataManager metadataManager = MetadataManager.getInstance(kylinConfig);
             final Set<TableDesc> lookupViewsTables = Sets.newHashSet();
 
-            for (LookupDesc lookupDesc : flatDesc.getDataModel().getLookups()) {
+            for (JoinTableDesc lookupDesc : flatDesc.getDataModel().getJoinTables()) {
                 TableDesc tableDesc = metadataManager.getTableDesc(lookupDesc.getTable());
                 if (TableDesc.TABLE_TYPE_VIRTUAL_VIEW.equalsIgnoreCase(tableDesc.getTableType())) {
                     lookupViewsTables.add(tableDesc);
@@ -284,7 +285,7 @@ public class HiveMRInput implements IMRInput {
                 logger.debug("Row count of table '" + intermediateTable + "' is " + rowCount);
                 if (rowCount == 0) {
                     if (!config.isEmptySegmentAllowed()) {
-                        stepLogger.log("Detect upstream hive table is empty, " + "fail the job because \"kylin.job.allow.empty.segment\" = \"false\"");
+                        stepLogger.log("Detect upstream hive table is empty, " + "fail the job because \"kylin.job.allow-empty-segment\" = \"false\"");
                         return new ExecuteResult(ExecuteResult.State.ERROR, stepLogger.getBufferedLog());
                     } else {
                         return new ExecuteResult(ExecuteResult.State.SUCCEED, "Row count is 0, no need to redistribute");

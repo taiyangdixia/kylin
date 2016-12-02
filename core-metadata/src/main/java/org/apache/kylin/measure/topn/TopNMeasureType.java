@@ -26,7 +26,6 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kylin.common.util.ByteArray;
-import org.apache.kylin.common.util.Bytes;
 import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.dimension.DictionaryDimEnc;
 import org.apache.kylin.dimension.DimensionEncoding;
@@ -57,6 +56,7 @@ public class TopNMeasureType extends MeasureType<TopNCounter<ByteArray>> {
     public static final String DATATYPE_TOPN = "topn";
 
     public static final String CONFIG_ENCODING_PREFIX = "topn.encoding.";
+    public static final String CONFIG_ENCODING_VERSION_PREFIX = "topn.encoding_version.";
     public static final String CONFIG_AGG = "topn.aggregation";
     public static final String CONFIG_ORDER = "topn.order";
 
@@ -146,8 +146,7 @@ public class TopNMeasureType extends MeasureType<TopNCounter<ByteArray>> {
                     if (values[i + 1] == null) {
                         Arrays.fill(key.array(), offset, offset + dimensionEncodings[i].getLengthOfEncoding(), DimensionEncoding.NULL);
                     } else {
-                        byte[] valueBytes = Bytes.toBytes(values[i + 1]);
-                        dimensionEncodings[i].encode(valueBytes, valueBytes.length, key.array(), offset);
+                        dimensionEncodings[i].encode(values[i + 1], key.array(), offset);
                     }
                     offset += dimensionEncodings[i].getLengthOfEncoding();
                 }
@@ -196,8 +195,7 @@ public class TopNMeasureType extends MeasureType<TopNCounter<ByteArray>> {
                     int innerBuffOffset = 0;
                     for (int i = 0; i < dimensionEncodings.length; i++) {
                         String dimValue = dimensionEncodings[i].decode(c.getItem().array(), offset, dimensionEncodings[i].getLengthOfEncoding());
-                        byte[] dimValueBytes = Bytes.toBytes(dimValue);
-                        newDimensionEncodings[i].encode(dimValueBytes, dimValueBytes.length, newIdBuf, bufOffset + innerBuffOffset);
+                        newDimensionEncodings[i].encode(dimValue, newIdBuf, bufOffset + innerBuffOffset);
                         innerBuffOffset += newDimensionEncodings[i].getLengthOfEncoding();
                         offset += dimensionEncodings[i].getLengthOfEncoding();
                     }
@@ -413,11 +411,20 @@ public class TopNMeasureType extends MeasureType<TopNCounter<ByteArray>> {
         for (int i = 0; i < literalCols.size(); i++) {
             TblColRef colRef = literalCols.get(i);
             String encoding = function.getConfiguration().get(TopNMeasureType.CONFIG_ENCODING_PREFIX + colRef.getName());
+            String encodingVersionStr = function.getConfiguration().get(TopNMeasureType.CONFIG_ENCODING_VERSION_PREFIX + colRef.getName());
             if (StringUtils.isEmpty(encoding) || DictionaryDimEnc.ENCODING_NAME.equals(encoding)) {
                 dimensionEncodings[i] = new DictionaryDimEnc(dictionaryMap.get(colRef));
             } else {
+                int encodingVersion = 1;
+                if (!StringUtils.isEmpty(encodingVersionStr)) {
+                    try {
+                        encodingVersion = Integer.parseInt(encodingVersionStr);
+                    } catch (NumberFormatException e) {
+                        throw new RuntimeException(TopNMeasureType.CONFIG_ENCODING_VERSION_PREFIX + colRef.getName() + " has to be an integer");
+                    }
+                }
                 Object[] encodingConf = DimensionEncoding.parseEncodingConf(encoding);
-                dimensionEncodings[i] = DimensionEncodingFactory.create((String) encodingConf[0], (String[]) encodingConf[1]);
+                dimensionEncodings[i] = DimensionEncodingFactory.create((String) encodingConf[0], (String[]) encodingConf[1], encodingVersion);
             }
         }
 

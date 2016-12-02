@@ -48,7 +48,6 @@ import org.apache.kylin.cube.model.DictionaryDesc;
 import org.apache.kylin.cube.model.DimensionDesc;
 import org.apache.kylin.dict.DictionaryInfo;
 import org.apache.kylin.dict.DictionaryManager;
-import org.apache.kylin.dict.DistinctColumnValuesProvider;
 import org.apache.kylin.dict.lookup.LookupStringTable;
 import org.apache.kylin.dict.lookup.SnapshotManager;
 import org.apache.kylin.dict.lookup.SnapshotTable;
@@ -214,25 +213,41 @@ public class CubeManager implements IRealizationProvider {
         return result;
     }
 
-    public DictionaryInfo buildDictionary(CubeSegment cubeSeg, TblColRef col, DistinctColumnValuesProvider factTableValueProvider) throws IOException {
+
+    public DictionaryInfo buildDictionary(CubeSegment cubeSeg, TblColRef col, ReadableTable inpTable) throws IOException {
         CubeDesc cubeDesc = cubeSeg.getCubeDesc();
         if (!cubeDesc.getAllColumnsNeedDictionaryBuilt().contains(col))
             return null;
 
-        DictionaryManager dictMgr = getDictionaryManager();
         String builderClass = cubeDesc.getDictionaryBuilderClass(col);
-        DictionaryInfo dictInfo = dictMgr.buildDictionary(cubeDesc.getModel(), col, factTableValueProvider, builderClass);
+        DictionaryInfo dictInfo = getDictionaryManager().buildDictionary(cubeDesc.getModel(), col, inpTable, builderClass);
 
+
+        saveDictionaryInfo(cubeSeg, col, dictInfo);
+        return dictInfo;
+    }
+    
+    public DictionaryInfo saveDictionary(CubeSegment cubeSeg, TblColRef col, ReadableTable inpTable, Dictionary<String> dict) throws IOException {
+        CubeDesc cubeDesc = cubeSeg.getCubeDesc();
+        if (!cubeDesc.getAllColumnsNeedDictionaryBuilt().contains(col))
+            return null;
+
+        DictionaryInfo dictInfo = getDictionaryManager().saveDictionary(cubeDesc.getModel(), col, inpTable, dict);
+        
+        saveDictionaryInfo(cubeSeg, col, dictInfo);
+        return dictInfo;
+    }
+
+    private void saveDictionaryInfo(CubeSegment cubeSeg, TblColRef col, DictionaryInfo dictInfo) throws IOException {
         if (dictInfo != null) {
             Dictionary<?> dict = dictInfo.getDictionaryObject();
             cubeSeg.putDictResPath(col, dictInfo.getResourcePath());
             cubeSeg.getRowkeyStats().add(new Object[] { col.getName(), dict.getSize(), dict.getSizeOfId() });
 
-            CubeUpdate cubeBuilder = new CubeUpdate(cubeSeg.getCubeInstance());
-            cubeBuilder.setToUpdateSegs(cubeSeg);
-            updateCube(cubeBuilder);
+            CubeUpdate update = new CubeUpdate(cubeSeg.getCubeInstance());
+            update.setToUpdateSegs(cubeSeg);
+            updateCube(update);
         }
-        return dictInfo;
     }
 
     /**
@@ -253,7 +268,6 @@ public class CubeManager implements IRealizationProvider {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to get dictionary for cube segment" + cubeSeg + ", col" + col, e);
         }
-
         return (Dictionary<String>) info.getDictionaryObject();
     }
 
@@ -617,24 +631,6 @@ public class CubeManager implements IRealizationProvider {
         }
     }
 
-    private long calculateStartOffsetForAppendSegment(CubeInstance cube) {
-        List<CubeSegment> existing = cube.getSegments();
-        if (existing.isEmpty()) {
-            return 0;
-        } else {
-            return existing.get(existing.size() - 1).getSourceOffsetEnd();
-        }
-    }
-
-    private long calculateStartDateForAppendSegment(CubeInstance cube) {
-        List<CubeSegment> existing = cube.getSegments();
-        if (existing.isEmpty()) {
-            return cube.getDescriptor().getPartitionDateStart();
-        } else {
-            return existing.get(existing.size() - 1).getDateRangeEnd();
-        }
-    }
-
     private void checkBuildingSegment(CubeInstance cube) {
         int maxBuldingSeg = cube.getConfig().getMaxBuildingSegments();
         if (cube.getBuildingSegments().size() >= maxBuldingSeg) {
@@ -923,6 +919,8 @@ public class CubeManager implements IRealizationProvider {
 
             CubeDesc cubeDesc = CubeDescManager.getInstance(config).getCubeDesc(cube.getDescName());
             checkNotNull(cubeDesc, "cube descriptor '%s' (for cube '%s') not found", cube.getDescName(), cubeName);
+            if (!isITTestCube(cubeName))
+                checkState(cubeDesc.getName().equals(cubeName), "cube name '%s' must be same as descriptor name '%s', but it is not", cubeName, cubeDesc.getName());
 
             if (!cubeDesc.getError().isEmpty()) {
                 cube.setStatus(RealizationStatusEnum.DESCBROKEN);
@@ -949,6 +947,11 @@ public class CubeManager implements IRealizationProvider {
             logger.error("Error during load cube instance, skipping : " + path, e);
             return null;
         }
+    }
+
+    private boolean isITTestCube(String cubeName) {
+        return config.isDevEnv() //
+                && (cubeName.startsWith("test_kylin_cube") || cubeName.startsWith("test_streaming"));
     }
 
     private MetadataManager getMetadataManager() {

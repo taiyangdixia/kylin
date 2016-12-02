@@ -46,10 +46,10 @@ import org.apache.kylin.cube.RawQueryLastHacker;
 import org.apache.kylin.cube.cuboid.Cuboid;
 import org.apache.kylin.cube.kv.RowConstants;
 import org.apache.kylin.cube.model.CubeDesc;
+import org.apache.kylin.cube.model.CubeDesc.DeriveInfo;
 import org.apache.kylin.cube.model.HBaseColumnDesc;
 import org.apache.kylin.cube.model.HBaseMappingDesc;
 import org.apache.kylin.cube.model.RowKeyDesc;
-import org.apache.kylin.cube.model.CubeDesc.DeriveInfo;
 import org.apache.kylin.dict.lookup.LookupStringTable;
 import org.apache.kylin.measure.MeasureType;
 import org.apache.kylin.metadata.filter.ColumnTupleFilter;
@@ -98,12 +98,12 @@ public class CubeStorageQuery implements IStorageQuery {
 
     @Override
     public ITupleIterator search(StorageContext context, SQLDigest sqlDigest, TupleInfo returnTupleInfo) {
-        
+
         //deal with participant columns in subquery join
         sqlDigest.includeSubqueryJoinParticipants();
-        
+
         //cope with queries with no aggregations
-        RawQueryLastHacker.hackNoAggregations(sqlDigest, cubeDesc);
+        RawQueryLastHacker.hackNoAggregations(sqlDigest, cubeDesc, returnTupleInfo);
 
         // Customized measure taking effect: e.g. allow custom measures to help raw queries
         notifyBeforeStorageQuery(sqlDigest);
@@ -437,7 +437,11 @@ public class CubeStorageQuery implements IStorageQuery {
         // build row key range for each cube segment
         StringBuilder sb = new StringBuilder("hbasekeyrange trace: ");
         for (CubeSegment cubeSeg : segs) {
-
+            CubeDesc cubeDesc = cubeSeg.getCubeDesc();
+            if (cubeDesc.getConfig().isSkippingEmptySegments() && cubeSeg.getInputRecords() == 0) {
+                logger.info("Skip cube segment {} because its input record is 0", cubeSeg);
+                continue;
+            }
             // consider derived (lookup snapshot), filter on dimension may
             // differ per segment
             List<Collection<ColumnValueRange>> orAndDimRanges = translateToOrAndDimRanges(flatFilter, cubeSeg);

@@ -222,7 +222,8 @@ public class KylinConfig extends KylinConfigBase {
                 Properties propOverride = new Properties();
                 propOverride.load(ois);
                 IOUtils.closeQuietly(ois);
-                conf.putAll(propOverride);
+                conf = BCC.check(conf);
+                conf.putAll(BCC.check(propOverride));
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -264,12 +265,10 @@ public class KylinConfig extends KylinConfigBase {
 
     private KylinConfig() {
         super();
-        logger.info("New KylinConfig " + System.identityHashCode(this));
-        KylinConfig.dumpStackTrace();
     }
 
-    protected KylinConfig(Properties props) {
-        super(props);
+    protected KylinConfig(Properties props, boolean force) {
+        super(props, force);
     }
 
     public void writeProperties(File file) throws IOException {

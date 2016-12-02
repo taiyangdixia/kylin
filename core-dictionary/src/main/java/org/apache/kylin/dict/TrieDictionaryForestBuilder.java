@@ -17,16 +17,21 @@
 */
 package org.apache.kylin.dict;
 
+import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.ByteArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 
-
+/**
+ * Build a trie dictionary forest if the input values is ordered, or the forest falls back to a single trie.
+ */
 public class TrieDictionaryForestBuilder<T> {
 
-    public static int MaxTrieTreeSize = 1024 * 1024;//1M
+    public static int DEFAULT_MAX_TRIE_TREE_SIZE_MB = 500;
+
+    private static final Logger logger = LoggerFactory.getLogger(TrieDictionaryForestBuilder.class);
 
     private BytesConverter<T> bytesConverter;
 
@@ -38,58 +43,61 @@ public class TrieDictionaryForestBuilder<T> {
 
     private ArrayList<ByteArray> valueDivide = new ArrayList<>(); //find tree
 
-    private ArrayList<Integer> accuOffset = new ArrayList<>();  //find tree
+    private ArrayList<Integer> accuOffset = new ArrayList<>(); //find tree
 
-    private ByteArray previousValue = null;  //value use for remove duplicate
-
-    private static final Logger logger = LoggerFactory.getLogger(TrieDictionaryForestBuilder.class);
+    private ByteArray previousValue = null; //value use for remove duplicate
 
     private int baseId;
 
     private int curOffset;
 
+    private int maxTrieTreeSize;
+
+    private boolean isOrdered = true;
 
     public TrieDictionaryForestBuilder(BytesConverter<T> bytesConverter) {
         this(bytesConverter, 0);
     }
 
     public TrieDictionaryForestBuilder(BytesConverter<T> bytesConverter, int baseId) {
+        this(bytesConverter, baseId, getMaxTrieSizeInMB());
+    }
+
+    public TrieDictionaryForestBuilder(BytesConverter<T> bytesConverter, int baseId, int maxTrieTreeSizeMB) {
         this.bytesConverter = bytesConverter;
         this.trieBuilder = new TrieDictionaryBuilder<T>(bytesConverter);
         this.baseId = baseId;
-        curOffset = 0;
-        //stringComparator = new ByteComparator<>(new StringBytesConverter());
+        this.curOffset = 0;
+        this.maxTrieTreeSize = maxTrieTreeSizeMB * 1024 * 1024;
     }
 
     public void addValue(T value) {
-        if (value == null) return;
+        if (value == null)
+            return;
         byte[] valueBytes = bytesConverter.convertToBytes(value);
-        addValue(new ByteArray(valueBytes, 0, valueBytes.length));
+        addValue(valueBytes);
     }
 
-    public void addValue(byte[] value) {
-        if (value == null) return;
-        ByteArray array = new ByteArray(value, 0, value.length);
-        addValue(array);
-    }
-
-    public void addValue(ByteArray value) {
-        //System.out.println("value length:"+value.length);
-        if (value == null) return;
-        if (previousValue == null) {
-            previousValue = value;
-        } else {
-            int comp = previousValue.compareTo(value);
-            if (comp == 0) return; //duplicate value
+    private void addValue(byte[] valueBytes) {
+        ByteArray valueByteArray = new ByteArray(valueBytes);
+        if (previousValue != null && isOrdered) {
+            int comp = previousValue.compareTo(valueByteArray);
+            if (comp == 0) {
+                return; //duplicate value
+            }
             if (comp > 0) {
-                //logger.info("values not in ascending order");
-                //System.out.println(".");
+                logger.info("values not in ascending order, previous '{}', current '{}'", previousValue, valueByteArray);
+                isOrdered = false;
+                if (trees.size() > 0) {
+                    throw new IllegalStateException("Invalid input data. Unordered data cannot be split into multi trees");
+                }
             }
         }
-        this.trieBuilder.addValue(value.array());
-        previousValue = value;
-        this.curTreeSize += value.length();
-        if (curTreeSize >= MaxTrieTreeSize) {
+        previousValue = valueByteArray;
+        trieBuilder.addValue(valueBytes);
+        curTreeSize += valueBytes.length;
+
+        if (curTreeSize >= maxTrieTreeSize && isOrdered) {
             TrieDictionary<T> tree = trieBuilder.build(0);
             addTree(tree);
             reset();
@@ -97,14 +105,27 @@ public class TrieDictionaryForestBuilder<T> {
     }
 
     public TrieDictionaryForest<T> build() {
-        if (curTreeSize != 0) {  //last tree
+        if (curTreeSize != 0) { //last tree
             TrieDictionary<T> tree = trieBuilder.build(0);
             addTree(tree);
             reset();
         }
-        TrieDictionaryForest<T> forest = new TrieDictionaryForest<T>(this.trees,
-                this.valueDivide, this.accuOffset, this.bytesConverter, baseId);
+        TrieDictionaryForest<T> forest = new TrieDictionaryForest<T>(this.trees, this.valueDivide, this.accuOffset, this.bytesConverter, baseId);
+
+        // if input values are not in ascending order and tree num>1,TrieDictionaryForest can not work correctly.
+        if (forest.getTrees().size() > 1 && !isOrdered) {
+            throw new IllegalStateException("Invalid input data. Unordered data can not be split into multi trees");
+        }
         return forest;
+    }
+
+    public int getMaxTrieTreeSize() {
+        return maxTrieTreeSize;
+    }
+
+    void setMaxTrieTreeSize(int maxTrieTreeSize) {
+        this.maxTrieTreeSize = maxTrieTreeSize;
+        logger.info("maxTrieSize is set to:" + maxTrieTreeSize + "B");
     }
 
     private void addTree(TrieDictionary<T> tree) {
@@ -114,12 +135,27 @@ public class TrieDictionaryForestBuilder<T> {
         byte[] valueBytes = tree.getValueBytesFromId(minId);
         valueDivide.add(new ByteArray(valueBytes, 0, valueBytes.length));
         curOffset += (tree.getMaxId() + 1);
-        //System.out.println(" curOffset:"+ curOffset);
     }
 
     private void reset() {
         curTreeSize = 0;
         trieBuilder = new TrieDictionaryBuilder<T>(bytesConverter);
+    }
+
+    public static int getMaxTrieSizeInMB() {
+        KylinConfig config = null;
+        try {
+            config = KylinConfig.getInstanceFromEnv();
+        } catch (RuntimeException e) {
+            logger.info("cannot get KylinConfig from env.Use default setting:" + DEFAULT_MAX_TRIE_TREE_SIZE_MB + "MB");
+        }
+        int maxTrieTreeSizeMB;
+        if (config != null) {
+            maxTrieTreeSizeMB = config.getTrieDictionaryForestMaxTrieSizeMB();
+        } else {
+            maxTrieTreeSizeMB = DEFAULT_MAX_TRIE_TREE_SIZE_MB;
+        }
+        return maxTrieTreeSizeMB;
     }
 
 }

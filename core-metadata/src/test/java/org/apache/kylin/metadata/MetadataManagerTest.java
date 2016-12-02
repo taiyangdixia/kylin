@@ -20,11 +20,14 @@ package org.apache.kylin.metadata;
 
 import static org.apache.kylin.metadata.MetadataManager.getInstance;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
 import org.apache.kylin.metadata.model.DataModelDesc;
 import org.apache.kylin.metadata.model.TableDesc;
+import org.apache.kylin.metadata.model.TableExtDesc;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -70,19 +73,43 @@ public class MetadataManagerTest extends LocalFileMetadataTestCase {
         DataModelDesc modelDesc = getInstance(getTestConfig()).getDataModelDesc("test_kylin_left_join_model_desc");
         Assert.assertTrue(modelDesc.getDimensions().size() > 0);
     }
-    
+
     @Test
     public void testSnowflakeDataModel() throws Exception {
-        DataModelDesc model = getInstance(getTestConfig()).getDataModelDesc("test_kylin_snowflake_model_desc");
+        DataModelDesc model = getInstance(getTestConfig()).getDataModelDesc("test_kylin_snowflake_sales_model");
         Assert.assertTrue(model.getDimensions().size() > 0);
 
         try {
-            model.findTable("TEST_KYLIN_COUNTRY");
+            model.findTable("KYLIN_COUNTRY");
             Assert.fail();
         } catch (IllegalArgumentException ex) {
             // excepted
         }
-        Assert.assertNotNull(model.findColumn("BUYER_COUNTRY"));
-        Assert.assertNotNull(model.findColumn("SELLER_COUNTRY"));
+        
+        Assert.assertNotNull(model.findTable("BUYER_COUNTRY"));
+        Assert.assertNotNull(model.findTable("SELLER_COUNTRY"));
+        Assert.assertNotNull(model.findColumn("BUYER_COUNTRY.NAME"));
+        Assert.assertNotNull(model.findColumn("BUYER_ID"));
+    }
+
+    @Test
+    public void testTableSample() throws IOException {
+        TableExtDesc tableExtDesc = getInstance(getTestConfig()).getTableExt("TEST.TEST_TABLE");
+        Assert.assertNotNull(tableExtDesc);
+
+        List<TableExtDesc.ColumnStats> columnStatsList = new ArrayList<>();
+        TableExtDesc.ColumnStats columnStats = new TableExtDesc.ColumnStats();
+        columnStats.setColumnSamples("Max", "Min", "dfadsfdsfdsafds", "d");
+        columnStatsList.add(columnStats);
+        tableExtDesc.setColumnStats(columnStatsList);
+        getInstance(getTestConfig()).saveTableExt(tableExtDesc);
+
+        TableExtDesc tableExtDesc1 = getInstance(getTestConfig()).getTableExt("TEST.TEST_TABLE");
+        Assert.assertNotNull(tableExtDesc1);
+
+        List<TableExtDesc.ColumnStats> columnStatsList1 = tableExtDesc1.getColumnStats();
+        Assert.assertEquals(1, columnStatsList1.size());
+
+        getInstance(getTestConfig()).removeTableExt("TEST.TEST_TABLE");
     }
 }

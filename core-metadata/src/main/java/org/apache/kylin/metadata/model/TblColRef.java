@@ -99,6 +99,7 @@ public class TblColRef implements Serializable {
 
     private TableRef table;
     private ColumnDesc column;
+    private String identity;
 
     TblColRef(ColumnDesc column) {
         this.column = column;
@@ -120,6 +121,10 @@ public class TblColRef implements Serializable {
 
     public TableRef getTableRef() {
         return table;
+    }
+    
+    public boolean isQualified() {
+        return table != null;
     }
     
     public String getTableAlias() {
@@ -186,6 +191,12 @@ public class TblColRef implements Serializable {
         if ((table == null ? other.table == null : table.equals(other.table)) == false)
             return false;
         return true;
+    }
+
+    public String getIdentity() {
+        if (identity == null)
+            identity = getTableAlias() + "." + getName();
+        return identity;
     }
 
     @Override

@@ -28,6 +28,7 @@ import org.apache.kylin.common.persistence.ResourceStore;
 public class LocalFileMetadataTestCase extends AbstractKylinTestCase {
 
     public static String LOCALMETA_TEST_DATA = "../examples/test_case_data/localmeta";
+    public static String LOCALMETA_TEMP_DATA = "../examples/test_metadata/";
 
     @Override
     public void createTestMetadata() {
@@ -45,7 +46,7 @@ public class LocalFileMetadataTestCase extends AbstractKylinTestCase {
     public static void staticCreateTestMetadata(String testDataFolder) {
         KylinConfig.destroyInstance();
 
-        String tempTestMetadataUrl = "../examples/test_metadata";
+        String tempTestMetadataUrl = LOCALMETA_TEMP_DATA;
         try {
             FileUtils.deleteDirectory(new File(tempTestMetadataUrl));
             FileUtils.copyDirectory(new File(testDataFolder), new File(tempTestMetadataUrl));
@@ -60,7 +61,7 @@ public class LocalFileMetadataTestCase extends AbstractKylinTestCase {
     }
 
     public static void cleanAfterClass() {
-        String tempTestMetadataUrl = "../examples/test_metadata";
+        String tempTestMetadataUrl = LOCALMETA_TEMP_DATA;
         try {
             FileUtils.deleteDirectory(new File(tempTestMetadataUrl));
         } catch (IOException e) {

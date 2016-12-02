@@ -239,9 +239,13 @@ public class OLAPTableScan extends TableScan implements OLAPRel, EnumerableRel {
         return new ColumnRowType(columns);
     }
     
+    public TableRef getTableRef() {
+        return columnRowType.getColumnByIndex(0).getTableRef();
+    }
+    
+    @SuppressWarnings("deprecation")
     public TblColRef makeRewriteColumn(String name) {
-        TableRef tableRef = columnRowType.getColumnByIndex(0).getTableRef();
-        return tableRef.makeFakeColumn(name);
+        return getTableRef().makeFakeColumn(name);
     }
     
     public void fixColumnRowTypeWithModel(DataModelDesc model, Map<String, String> aliasMap) {
@@ -270,7 +274,7 @@ public class OLAPTableScan extends TableScan implements OLAPRel, EnumerableRel {
 
     private String genExecFunc() {
         // if the table to scan is not the fact table of cube, then it's a lookup table
-        if (context.hasJoin == false && tableName.equalsIgnoreCase(context.realization.getFactTable()) == false) {
+        if (context.hasJoin == false && context.realization.getModel().isLookupTable(tableName)) {
             return "executeLookupTableQuery";
         } else {
             return "executeOLAPQuery";

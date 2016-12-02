@@ -18,24 +18,27 @@
 
 package org.apache.kylin.engine.mr.steps;
 
+import java.io.IOException;
+
 import org.apache.commons.cli.Options;
+import org.apache.commons.io.IOUtils;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.kylin.common.KylinConfig;
+import org.apache.kylin.common.util.ClassUtil;
+import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.cube.cli.DictionaryGeneratorCLI;
+import org.apache.kylin.dict.DictionaryProvider;
 import org.apache.kylin.dict.DistinctColumnValuesProvider;
-import org.apache.kylin.engine.mr.DFSFileTable;
+import org.apache.kylin.engine.mr.HadoopUtil;
+import org.apache.kylin.engine.mr.SortedColumnDFSFile;
 import org.apache.kylin.engine.mr.common.AbstractHadoopJob;
 import org.apache.kylin.metadata.model.TblColRef;
 import org.apache.kylin.source.ReadableTable;
 
-/**
- * @author ysong1
- * 
- */
-
 public class CreateDictionaryJob extends AbstractHadoopJob {
-
-    private int returnCode = 0;
 
     @Override
     public int run(String[] args) throws Exception {
@@ -49,16 +52,38 @@ public class CreateDictionaryJob extends AbstractHadoopJob {
         final String segmentID = getOptionValue(OPTION_SEGMENT_ID);
         final String factColumnsInputPath = getOptionValue(OPTION_INPUT_PATH);
 
-        KylinConfig config = KylinConfig.getInstanceFromEnv();
+        final KylinConfig config = KylinConfig.getInstanceFromEnv();
 
         DictionaryGeneratorCLI.processSegment(config, cubeName, segmentID, new DistinctColumnValuesProvider() {
             @Override
             public ReadableTable getDistinctValuesFor(TblColRef col) {
-                return new DFSFileTable(factColumnsInputPath + "/" + col.getName(), -1);
+                return new SortedColumnDFSFile(factColumnsInputPath + "/" + col.getName(), col.getType());
+            }
+        }, new DictionaryProvider() {
+
+            @Override
+            public Dictionary<String> getDictionary(TblColRef col) throws IOException {
+                Path colDir = new Path(factColumnsInputPath, col.getName());
+                Path dictFile = new Path(colDir, col.getName() + FactDistinctColumnsReducer.DICT_FILE_POSTFIX);
+                FileSystem fs = HadoopUtil.getFileSystem(dictFile.toString());
+                if (fs.exists(dictFile) == false)
+                    return null;
+                
+                FSDataInputStream is = null;
+                try {
+                    is = fs.open(dictFile);
+                    String dictClassName = is.readUTF();
+                    Dictionary<String> dict = (Dictionary<String>) ClassUtil.newInstance(dictClassName);
+                    dict.readFields(is);
+                    logger.info("DictionaryProvider read dict from file: " + dictFile);
+                    return dict;
+                } finally {
+                    IOUtils.closeQuietly(is);
+                }
             }
         });
 
-        return returnCode;
+        return 0;
     }
 
     public static void main(String[] args) throws Exception {

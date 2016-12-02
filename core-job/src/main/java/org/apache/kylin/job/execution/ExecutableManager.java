@@ -266,7 +266,7 @@ public class ExecutableManager {
         if (job instanceof DefaultChainedExecutable) {
             List<AbstractExecutable> tasks = ((DefaultChainedExecutable) job).getTasks();
             for (AbstractExecutable task : tasks) {
-                if (task.getStatus() == ExecutableState.ERROR) {
+                if (task.getStatus() == ExecutableState.ERROR || task.getStatus() == ExecutableState.STOPPED) {
                     updateJobOutput(task.getId(), ExecutableState.READY, null, null);
                     break;
                 }
@@ -292,6 +292,33 @@ public class ExecutableManager {
         updateJobOutput(jobId, ExecutableState.DISCARDED, null, null);
     }
 
+
+    public void rollbackJob(String jobId, String stepId) {
+        AbstractExecutable job = getJob(jobId);
+        if (job == null) {
+            return;
+        }
+
+        if (job instanceof DefaultChainedExecutable) {
+            List<AbstractExecutable> tasks = ((DefaultChainedExecutable) job).getTasks();
+            for (AbstractExecutable task : tasks) {
+                if (task.getId().compareTo(stepId) >= 0) {
+                    logger.debug("rollback task : " + task);
+                    updateJobOutput(task.getId(), ExecutableState.READY, null, null);
+                }
+            }
+        }
+    }
+
+    public void pauseJob(String jobId) {
+        AbstractExecutable job = getJob(jobId);
+        if (job == null) {
+            return;
+        }
+
+        updateJobOutput(jobId, ExecutableState.STOPPED, null, null);
+    }
+
     public void updateJobOutput(String jobId, ExecutableState newStatus, Map<String, String> info, String output) {
         try {
             final ExecutableOutputPO jobOutput = executableDao.getJobOutput(jobId);
@@ -312,7 +339,7 @@ public class ExecutableManager {
             executableDao.updateJobOutput(jobOutput);
             logger.info("job id:" + jobId + " from " + oldStatus + " to " + newStatus);
         } catch (PersistentException e) {
-            logger.error("error change job:" + jobId + " to " + newStatus.toString());
+            logger.error("error change job:" + jobId + " to " + newStatus);
             throw new RuntimeException(e);
         }
     }

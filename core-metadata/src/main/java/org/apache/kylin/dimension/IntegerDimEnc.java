@@ -24,14 +24,17 @@ import java.io.ObjectOutput;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-import org.apache.kylin.common.util.Bytes;
 import org.apache.kylin.common.util.BytesUtil;
 import org.apache.kylin.metadata.datatype.DataTypeSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * replacement for IntegerDimEnc, the diff is VLongDimEnc supports negative values
+ * replacement for IntDimEnc, the diff is IntegerDimEnc supports negative values
+ * for IntegerDimEnc(N), the supported range is (-2^(8*N-1),2^(8*N-1))
+ *
+ * -2^(8*N-1) is not supported because the slot is reserved for null values.
+ * -2^(8*N-1) will be encoded with warn, and its output will be null
  */
 public class IntegerDimEnc extends DimensionEncoding {
     private static final long serialVersionUID = 1L;
@@ -86,16 +89,7 @@ public class IntegerDimEnc extends DimensionEncoding {
     }
 
     @Override
-    public void encode(byte[] value, int valueLen, byte[] output, int outputOffset) {
-        if (value == null) {
-            Arrays.fill(output, outputOffset, outputOffset + fixedLen, NULL);
-            return;
-        }
-
-        encode(Bytes.toString(value, 0, valueLen), output, outputOffset);
-    }
-
-    void encode(String valueStr, byte[] output, int outputOffset) {
+    public void encode(String valueStr, byte[] output, int outputOffset) {
         if (valueStr == null) {
             Arrays.fill(output, outputOffset, outputOffset + fixedLen, NULL);
             return;
@@ -127,7 +121,7 @@ public class IntegerDimEnc extends DimensionEncoding {
 
         //only take useful bytes
         integer = integer & MASK[fixedLen];
-        boolean positive = (integer & ((0x80) << ((fixedLen - 1) << 3))) == 0;
+        boolean positive = (integer & ((0x80L) << ((fixedLen - 1) << 3))) == 0;
         if (!positive) {
             integer |= (~MASK[fixedLen]);
         }

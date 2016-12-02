@@ -134,7 +134,7 @@ public class JobController extends BasicController {
     }
 
     /**
-     * Cancel a job
+     * Cancel/discard a job
      * 
      * @return
      * @throws IOException
@@ -151,6 +151,47 @@ public class JobController extends BasicController {
             throw new InternalErrorException(e);
         }
 
+    }
+
+
+
+    /**
+     * Pause a job
+     *
+     * @return
+     * @throws IOException
+     */
+    @RequestMapping(value = "/{jobId}/pause", method = { RequestMethod.PUT })
+    @ResponseBody
+    public JobInstance pause(@PathVariable String jobId) {
+
+        try {
+            final JobInstance jobInstance = jobService.getJobInstance(jobId);
+            return jobService.pauseJob(jobInstance);
+        } catch (Exception e) {
+            logger.error(e.getLocalizedMessage(), e);
+            throw new InternalErrorException(e);
+        }
+
+    }
+
+    /**
+     * Rollback a job to the given step
+     *
+     * @return
+     * @throws IOException
+     */
+    @RequestMapping(value = "/{jobId}/steps/{stepId}/rollback", method = { RequestMethod.PUT })
+    @ResponseBody
+    public JobInstance rollback(@PathVariable String jobId, @PathVariable String stepId) {
+        try {
+            final JobInstance jobInstance = jobService.getJobInstance(jobId);
+            jobService.rollbackJob(jobInstance, stepId);
+            return jobService.getJobInstance(jobId);
+        } catch (Exception e) {
+            logger.error(e.getLocalizedMessage(), e);
+            throw new InternalErrorException(e);
+        }
     }
 
     public void setJobService(JobService jobService) {

@@ -57,7 +57,7 @@ import org.apache.kylin.job.execution.ExecutableManager;
 import org.apache.kylin.job.execution.ExecutableState;
 import org.apache.kylin.metadata.realization.IRealizationConstants;
 import org.apache.kylin.source.hive.HiveClientFactory;
-import org.apache.kylin.source.hive.HiveCmdBuilder;
+import org.apache.kylin.common.util.HiveCmdBuilder;
 import org.apache.kylin.source.hive.IHiveClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -190,7 +190,7 @@ public class StorageCleanupJob extends AbstractApplication {
         // GlobFilter filter = new
         // GlobFilter(KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory()
         // + "/kylin-.*");
-        // TODO: when first use, /kylin/kylin_metadata does not exist.
+        // TODO: when first use, /kylin/kylin_default_instance does not exist.
         FileStatus[] fStatus = fs.listStatus(new Path(KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory()));
         for (FileStatus status : fStatus) {
             String path = status.getPath().getName();
@@ -333,7 +333,7 @@ public class StorageCleanupJob extends AbstractApplication {
                 }
                 cmdExec.execute(hiveCmdBuilder.build());
 
-                //if kylin.hive.keep.flat.table, some intermediate table might be kept 
+                //if kylin.source.hive.keep-flat-table, some intermediate table might be kept 
                 //delete external path
                 for (String tableToDelete : allHiveTablesNeedToBeDeleted) {
                     String uuid = tableToDelete.substring(tableToDelete.length() - uuidLength, tableToDelete.length());
@@ -347,7 +347,7 @@ public class StorageCleanupJob extends AbstractApplication {
                             fs.delete(externalDataPath, true);
                             logger.info("Hive table {}'s external path {} deleted", tableToDelete, path);
                         } else {
-                            logger.info("Hive table {}'s external path {} not exist. It's normal if kylin.hive.keep.flat.table set false (By default)", tableToDelete, path);
+                            logger.info("Hive table {}'s external path {} not exist. It's normal if kylin.source.hive.keep-flat-table set false (By default)", tableToDelete, path);
                         }
                     } else {
                         logger.warn("Hive table {}'s job ID not found, segmentId2JobId: {}", tableToDelete, segmentId2JobId.toString());

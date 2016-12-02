@@ -16,13 +16,27 @@
  * limitations under the License.
 */
 
-package org.apache.kylin.engine.mr.steps.fdc2;
+package org.apache.kylin.tool;
 
-/**
- * Created by xiefan on 16-11-2.
- */
-public enum TypeFlag {
-    NONE_NUMERIC_TYPE,
-    INTEGER_FAMILY_TYPE,
-    DOUBLE_FAMILY_TYPE
+import java.util.Properties;
+
+import org.apache.kylin.common.BackwardCompatibilityConfig;
+import org.apache.kylin.common.KylinConfig;
+
+public class KylinConfigCLI {
+    public static void main(String[] args) {
+        if (args.length != 1) {
+            System.err.println("Usage: KylinConfigCLI conf_name");
+            System.err.println("Example: KylinConfigCLI kylin.server.mode");
+            System.exit(1);
+        }
+
+        Properties config = KylinConfig.getKylinProperties();
+        BackwardCompatibilityConfig bcc = new BackwardCompatibilityConfig();
+        String value = config.getProperty(bcc.check(args[0]));
+        if (value == null) {
+            value = "";
+        }
+        System.out.println(value);
+    }
 }

@@ -89,7 +89,7 @@ public class FactDistinctColumnsJob extends AbstractHadoopJob {
             }
 
             if (reducerCount > 255) {
-                throw new IllegalArgumentException("The max reducer number for FactDistinctColumnsJob is 255, but now it is " + reducerCount + ", decrease 'kylin.job.uhc.reducer.count'");
+                throw new IllegalArgumentException("The max reducer number for FactDistinctColumnsJob is 255, but now it is " + reducerCount + ", decrease 'kylin.engine.mr.uhc-reducer-count'");
             }
 
 
@@ -133,7 +133,7 @@ public class FactDistinctColumnsJob extends AbstractHadoopJob {
 
         job.setMapperClass(FactDistinctHiveColumnsMapper.class);
         job.setCombinerClass(FactDistinctColumnsCombiner.class);
-        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputKeyClass(SelfDefineSortableKey.class);
         job.setMapOutputValueClass(Text.class);
     }
 

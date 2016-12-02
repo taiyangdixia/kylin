@@ -75,6 +75,8 @@ import org.springframework.stereotype.Component;
 
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -255,6 +257,8 @@ public class JobService extends BasicService implements InitializingBean {
             return ExecutableState.READY;
         case RUNNING:
             return ExecutableState.RUNNING;
+        case STOPPED:
+            return ExecutableState.STOPPED;
         default:
             throw new RuntimeException("illegal status:" + status);
         }
@@ -423,6 +427,7 @@ public class JobService extends BasicService implements InitializingBean {
         case SUCCEED:
             return JobStatusEnum.FINISHED;
         case STOPPED:
+            return JobStatusEnum.STOPPED;
         default:
             throw new RuntimeException("invalid state:" + state);
         }
@@ -441,6 +446,7 @@ public class JobService extends BasicService implements InitializingBean {
         case SUCCEED:
             return JobStepStatusEnum.FINISHED;
         case STOPPED:
+            return JobStepStatusEnum.STOPPED;
         default:
             throw new RuntimeException("invalid state:" + state);
         }
@@ -454,8 +460,20 @@ public class JobService extends BasicService implements InitializingBean {
     }
 
     @PreAuthorize(Constant.ACCESS_HAS_ROLE_ADMIN + " or hasPermission(#job, 'ADMINISTRATION') or hasPermission(#job, 'OPERATION') or hasPermission(#job, 'MANAGEMENT')")
+    public void rollbackJob(JobInstance job, String stepId) throws IOException, JobException {
+        lockSegment(job.getRelatedSegment());
+
+        getExecutableManager().rollbackJob(job.getId(), stepId);
+    }
+
+    @PreAuthorize(Constant.ACCESS_HAS_ROLE_ADMIN + " or hasPermission(#job, 'ADMINISTRATION') or hasPermission(#job, 'OPERATION') or hasPermission(#job, 'MANAGEMENT')")
     public JobInstance cancelJob(JobInstance job) throws IOException, JobException {
+        if (null == job.getRelatedCube() || null == getCubeManager().getCube(job.getRelatedCube())) {
+            getExecutableManager().discardJob(job.getId());
+            return job;
+        }
         CubeInstance cubeInstance = getCubeManager().getCube(job.getRelatedCube());
+        // might not a cube job
         final String segmentIds = job.getRelatedSegment();
         for (String segmentId : StringUtils.split(segmentIds)) {
             final CubeSegment segment = cubeInstance.getSegmentById(segmentId);
@@ -467,6 +485,17 @@ public class JobService extends BasicService implements InitializingBean {
             }
         }
         getExecutableManager().discardJob(job.getId());
+
+        //release the segment lock when discarded the job but the job hasn't scheduled
+        releaseSegmentLock(job.getRelatedSegment());
+
+        return job;
+    }
+
+
+    @PreAuthorize(Constant.ACCESS_HAS_ROLE_ADMIN + " or hasPermission(#job, 'ADMINISTRATION') or hasPermission(#job, 'OPERATION') or hasPermission(#job, 'MANAGEMENT')")
+    public JobInstance pauseJob(JobInstance job) throws IOException, JobException {
+        getExecutableManager().pauseJob(job.getId());
 
         //release the segment lock when discarded the job but the job hasn't scheduled
         releaseSegmentLock(job.getRelatedSegment());
@@ -497,4 +526,61 @@ public class JobService extends BasicService implements InitializingBean {
         }
         return serverName;
     }
+    
+    public List<CubingJob> listAllCubingJobs(final String cubeName, final String projectName, final Set<ExecutableState> statusList, final Map<String, Output> allOutputs) {
+        return listAllCubingJobs(cubeName, projectName, statusList, -1L, -1L, allOutputs);
+    }
+
+    public List<CubingJob> listAllCubingJobs(final String cubeName, final String projectName, final Set<ExecutableState> statusList, long timeStartInMillis, long timeEndInMillis, final Map<String, Output> allOutputs) {
+        List<CubingJob> results = Lists.newArrayList(FluentIterable.from(getExecutableManager().getAllExecutables(timeStartInMillis, timeEndInMillis)).filter(new Predicate<AbstractExecutable>() {
+            @Override
+            public boolean apply(AbstractExecutable executable) {
+                if (executable instanceof CubingJob) {
+                    if (cubeName == null) {
+                        return true;
+                    }
+                    return CubingExecutableUtil.getCubeName(executable.getParams()).equalsIgnoreCase(cubeName);
+                } else {
+                    return false;
+                }
+            }
+        }).transform(new Function<AbstractExecutable, CubingJob>() {
+            @Override
+            public CubingJob apply(AbstractExecutable executable) {
+                return (CubingJob) executable;
+            }
+        }).filter(Predicates.and(new Predicate<CubingJob>() {
+            @Override
+            public boolean apply(CubingJob executable) {
+                if (null == projectName || null == getProjectManager().getProject(projectName)) {
+                    return true;
+                } else {
+                    return projectName.equals(executable.getProjectName());
+                }
+            }
+        }, new Predicate<CubingJob>() {
+            @Override
+            public boolean apply(CubingJob executable) {
+                try {
+                    Output output = allOutputs.get(executable.getId());
+                    ExecutableState state = output.getState();
+                    boolean ret = statusList.contains(state);
+                    return ret;
+                } catch (Exception e) {
+                    throw e;
+                }
+            }
+        })));
+        return results;
+    }
+
+    public List<CubingJob> listAllCubingJobs(final String cubeName, final String projectName, final Set<ExecutableState> statusList) {
+        return listAllCubingJobs(cubeName, projectName, statusList, getExecutableManager().getAllOutputs());
+    }
+
+    public List<CubingJob> listAllCubingJobs(final String cubeName, final String projectName) {
+        return listAllCubingJobs(cubeName, projectName, EnumSet.allOf(ExecutableState.class), getExecutableManager().getAllOutputs());
+    }
+
+
 }

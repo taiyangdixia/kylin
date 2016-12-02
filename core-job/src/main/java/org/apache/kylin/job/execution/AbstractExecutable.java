@@ -82,7 +82,7 @@ public abstract class AbstractExecutable implements Executable, Idempotent {
 
     protected void onExecuteFinished(ExecuteResult result, ExecutableContext executableContext) {
         setEndTime(System.currentTimeMillis());
-        if (!isDiscarded()) {
+        if (!isDiscarded() && !isRunnable()) {
             if (result.succeed()) {
                 getManager().updateJobOutput(getId(), ExecutableState.SUCCEED, null, result.output());
             } else {
@@ -378,6 +378,11 @@ public abstract class AbstractExecutable implements Executable, Idempotent {
     protected final boolean isDiscarded() {
         final ExecutableState status = getOutput().getState();
         return status == ExecutableState.DISCARDED;
+    }
+
+    protected final boolean isPaused() {
+        final ExecutableState status = getOutput().getState();
+        return status == ExecutableState.STOPPED;
     }
 
     protected boolean needRetry() {

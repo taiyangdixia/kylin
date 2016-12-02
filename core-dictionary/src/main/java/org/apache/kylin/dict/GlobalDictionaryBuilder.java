@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.NavigableSet;
 
 import org.apache.kylin.common.KylinConfig;
-import org.apache.kylin.common.util.Bytes;
 import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.metadata.MetadataManager;
 import org.slf4j.Logger;
@@ -37,8 +36,11 @@ import org.slf4j.LoggerFactory;
 public class GlobalDictionaryBuilder implements IDictionaryBuilder {
     private static final Logger logger = LoggerFactory.getLogger(GlobalDictionaryBuilder.class);
 
+    AppendTrieDictionary.Builder<String> builder;
+    int baseId;
+    
     @Override
-    public Dictionary<String> build(DictionaryInfo dictInfo, IDictionaryValueEnumerator valueEnumerator, int baseId, int nSamples, ArrayList<String> returnSamples) throws IOException {
+    public void init(DictionaryInfo dictInfo, int baseId) throws IOException {
         if (dictInfo == null) {
             throw new IllegalArgumentException("GlobalDictinaryBuilder must used with an existing DictionaryInfo");
         }
@@ -56,29 +58,31 @@ public class GlobalDictionaryBuilder implements IDictionaryBuilder {
             }
         }
 
-        AppendTrieDictionary.Builder<String> builder;
         if (appendDicts.isEmpty()) {
             logger.info("GlobalDict {} is empty, create new one", dictInfo.getResourceDir());
-            builder = AppendTrieDictionary.Builder.create(dictDir);
+            this.builder = AppendTrieDictionary.Builder.create(dictDir);
         } else if (appendDicts.size() == 1) {
             logger.info("GlobalDict {} exist, append value", appendDicts.get(0));
             AppendTrieDictionary dict = (AppendTrieDictionary) DictionaryManager.getInstance(KylinConfig.getInstanceFromEnv()).getDictionary(appendDicts.get(0));
-            builder = AppendTrieDictionary.Builder.create(dict);
+            this.builder = AppendTrieDictionary.Builder.create(dict);
         } else {
             throw new IllegalStateException(String.format("GlobalDict %s should have 0 or 1 append dict but %d", dictInfo.getResourceDir(), appendDicts.size()));
         }
-
-        byte[] value;
-        while (valueEnumerator.moveNext()) {
-            value = valueEnumerator.current();
-            if (value == null) {
-                continue;
-            }
-            String v = Bytes.toString(value);
-            builder.addValue(v);
-            if (returnSamples.size() < nSamples && returnSamples.contains(v) == false)
-                returnSamples.add(v);
-        }
+        
+        this.baseId = baseId;
+    }
+    
+    @Override
+    public boolean addValue(String value) {
+        if (value == null)
+            return false;
+        
+        builder.addValue(value);
+        return true;
+    }
+    
+    @Override
+    public Dictionary<String> build() throws IOException {
         return builder.build(baseId);
     }
 }

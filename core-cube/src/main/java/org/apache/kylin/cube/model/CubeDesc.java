@@ -34,13 +34,12 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.Map.Entry;
 
 import javax.annotation.Nullable;
 
-import com.google.common.collect.Iterables;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.ArrayUtils;
@@ -64,18 +63,21 @@ import org.apache.kylin.metadata.model.IEngineAware;
 import org.apache.kylin.metadata.model.IStorageAware;
 import org.apache.kylin.metadata.model.JoinDesc;
 import org.apache.kylin.metadata.model.MeasureDesc;
-import org.apache.kylin.metadata.model.TableDesc;
 import org.apache.kylin.metadata.model.TblColRef;
+import org.apache.kylin.metadata.project.ProjectInstance;
+import org.apache.kylin.metadata.project.ProjectManager;
+import org.apache.kylin.metadata.realization.RealizationType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -196,7 +198,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
     public Set<TblColRef> listAllColumns() {
         return allColumns;
     }
-    
+
     public Set<ColumnDesc> listAllColumnDescs() {
         return allColumnDescs;
     }
@@ -209,7 +211,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
     }
 
     /**
-     * @return dimension columns excluding derived 
+     * @return dimension columns excluding derived
      */
     public List<TblColRef> listDimensionColumnsExcludingDerived(boolean alsoExcludeExtendedCol) {
         List<TblColRef> result = new ArrayList<TblColRef>();
@@ -341,18 +343,6 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         this.description = description;
     }
 
-    public String getFactTable() {
-        return model.getFactTable();
-    }
-
-    public TableDesc getFactTableDesc() {
-        return model.getFactTableRef().getTableDesc();
-    }
-
-    public List<TableDesc> getLookupTableDescs() {
-        return model.getLookupTableDescs();
-    }
-
     public String[] getNullStrings() {
         return nullStrings;
     }
@@ -441,7 +431,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         if (!name.equals(cubeDesc.name))
             return false;
 
-        if (!getFactTable().equals(cubeDesc.getFactTable()))
+        if (!modelName.equals(cubeDesc.modelName))
             return false;
 
         return true;
@@ -461,7 +451,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
     public int hashCode() {
         int result = 0;
         result = 31 * result + name.hashCode();
-        result = 31 * result + getFactTable().hashCode();
+        result = 31 * result + model.getRootFactTable().hashCode();
         return result;
     }
 
@@ -473,11 +463,17 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
     /**
      * this method is to prevent malicious metadata change by checking the saved signature
      * with the calculated signature.
-     * 
+     * <p>
      * if you're comparing two cube descs, prefer to use consistentWith()
+     *
      * @return
      */
     public boolean checkSignature() {
+        if (this.getConfig().isIgnoreCubeSignatureInconsistency()) {
+            logger.info("Skip checking cube signature");
+            return true;
+        }
+
         if (KylinVersion.getCurrentVersion().isCompatibleWith(new KylinVersion(getVersion())) && !KylinVersion.getCurrentVersion().isSignatureCompatibleWith(new KylinVersion(getVersion()))) {
             logger.info("checkSignature on {} is skipped as the its version is {} (not signature compatible but compatible) ", getName(), getVersion());
             return true;
@@ -526,10 +522,15 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
 
     public void init(KylinConfig config) {
         this.errors.clear();
-        this.config = KylinConfigExt.createInstance(config, overrideKylinProps);
 
         checkArgument(StringUtils.isNotBlank(name), "CubeDesc name is blank");
         checkArgument(StringUtils.isNotBlank(modelName), "CubeDesc(%s) has blank modelName", name);
+
+        // note CubeDesc.name == CubeInstance.name
+        List<ProjectInstance> ownerPrj = ProjectManager.getInstance(config).findProjects(RealizationType.CUBE, name);
+        logger.info("CubeDesc '" + name + "' is owned by " + ownerPrj);
+
+        this.config = KylinConfigExt.createInstance(config, overrideKylinProps);
 
         this.model = MetadataManager.getInstance(config).getDataModelDesc(modelName);
         checkNotNull(this.model, "DateModelDesc(%s) not found", modelName);
@@ -558,7 +559,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         checkState(rowkey.getRowKeyColumns().length == dimCols.size(), "RowKey columns count (%d) doesn't match dimensions columns count (%d)", rowkey.getRowKeyColumns().length, dimCols.size());
 
         initDictionaryDesc();
-        
+
         for (TblColRef col : allColumns) {
             allColumnDescs.add(col.getColumnDesc());
         }
@@ -578,7 +579,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
                 throw new IllegalStateException("Aggregation group " + index + " select rule field not set");
             }
 
-            int combination = 1;
+            long combination = 1;
             Set<String> includeDims = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             getDims(includeDims, agg.getIncludes());
 
@@ -596,7 +597,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
             Set<String> jointDims = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             getDims(jointDimsList, jointDims, agg.getSelectRule().joint_dims);
             if (jointDimsList.size() > 0) {
-                combination = combination * (1 << jointDimsList.size());
+                combination = combination * (1L << jointDimsList.size());
             }
 
             if (!includeDims.containsAll(mandatoryDims) || !includeDims.containsAll(hierarchyDims) || !includeDims.containsAll(jointDims)) {
@@ -607,6 +608,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
                         notIncluded.add(dim);
                     }
                 }
+                Collections.sort(notIncluded);
                 logger.error("Aggregation group " + index + " Include dimensions not containing all the used dimensions");
                 throw new IllegalStateException("Aggregation group " + index + " 'includes' dimensions not include all the dimensions:" + notIncluded.toString());
             }
@@ -617,25 +619,25 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
             normalDims.removeAll(hierarchyDims);
             normalDims.removeAll(jointDims);
 
-            combination = combination * (1 << normalDims.size());
+            combination = combination * (1L << normalDims.size());
 
             if (combination > config.getCubeAggrGroupMaxCombination()) {
-                String msg = "Aggregation group " + index + " has too many combinations, use 'mandatory'/'hierarchy'/'joint' to optimize; or update 'kylin.cube.aggrgroup.max.combination' to a bigger value.";
+                String msg = "Aggregation group " + index + " has too many combinations, use 'mandatory'/'hierarchy'/'joint' to optimize; or update 'kylin.cube.aggrgroup.max-combination' to a bigger value.";
                 logger.error("Aggregation group " + index + " has " + combination + " combinations;");
                 logger.error(msg);
                 throw new IllegalStateException(msg);
             }
 
             if (CollectionUtils.containsAny(mandatoryDims, hierarchyDims)) {
-                logger.warn("Aggregation group " + index + " mandatory dimensions overlap with hierarchy dimensions: " + CollectionUtils.intersection(mandatoryDims, hierarchyDims));
+                logger.warn("Aggregation group " + index + " mandatory dimensions overlap with hierarchy dimensions: " + ensureOrder(CollectionUtils.intersection(mandatoryDims, hierarchyDims)));
             }
             if (CollectionUtils.containsAny(mandatoryDims, jointDims)) {
-                logger.warn("Aggregation group " + index + " mandatory dimensions overlap with joint dimensions: " + CollectionUtils.intersection(mandatoryDims, jointDims));
+                logger.warn("Aggregation group " + index + " mandatory dimensions overlap with joint dimensions: " + ensureOrder(CollectionUtils.intersection(mandatoryDims, jointDims)));
             }
 
             if (CollectionUtils.containsAny(hierarchyDims, jointDims)) {
                 logger.error("Aggregation group " + index + " hierarchy dimensions overlap with joint dimensions");
-                throw new IllegalStateException("Aggregation group " + index + " hierarchy dimensions overlap with joint dimensions: " + CollectionUtils.intersection(hierarchyDims, jointDims));
+                throw new IllegalStateException("Aggregation group " + index + " hierarchy dimensions overlap with joint dimensions: " + ensureOrder(CollectionUtils.intersection(hierarchyDims, jointDims)));
             }
 
             if (hasSingle(hierarchyDimsList)) {
@@ -649,14 +651,14 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
 
             Pair<Boolean, Set<String>> overlap = hasOverlap(hierarchyDimsList, hierarchyDims);
             if (overlap.getFirst() == true) {
-                logger.error("Aggregation group " + index + " a dimension exist in more than one hierarchy: " + overlap.getSecond());
-                throw new IllegalStateException("Aggregation group " + index + " a dimension exist in more than one hierarchy: " + overlap.getSecond());
+                logger.error("Aggregation group " + index + " a dimension exist in more than one hierarchy: " + ensureOrder(overlap.getSecond()));
+                throw new IllegalStateException("Aggregation group " + index + " a dimension exist in more than one hierarchy: " + ensureOrder(overlap.getSecond()));
             }
 
             overlap = hasOverlap(jointDimsList, jointDims);
             if (overlap.getFirst() == true) {
-                logger.error("Aggregation group " + index + " a dimension exist in more than one joint: " + overlap.getSecond());
-                throw new IllegalStateException("Aggregation group " + index + " a dimension exist in more than one joint: " + overlap.getSecond());
+                logger.error("Aggregation group " + index + " a dimension exist in more than one joint: " + ensureOrder(overlap.getSecond()));
+                throw new IllegalStateException("Aggregation group " + index + " a dimension exist in more than one joint: " + ensureOrder(overlap.getSecond()));
             }
 
             index++;
@@ -700,7 +702,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         Set<String> overlap = new HashSet<>();
         for (Set<String> dims : dimsList) {
             if (CollectionUtils.containsAny(existing, dims)) {
-                overlap.addAll(CollectionUtils.intersection(existing, dims));
+                overlap.addAll(ensureOrder(CollectionUtils.intersection(existing, dims)));
             }
             existing.addAll(dims);
         }
@@ -829,6 +831,7 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         return col;
     }
 
+    @SuppressWarnings("deprecation")
     private void initMeasureColumns() {
         if (measures == null || measures.isEmpty()) {
             return;
@@ -993,7 +996,9 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         this.partitionOffsetStart = partitionOffsetStart;
     }
 
-    /** Get columns that have dictionary */
+    /**
+     * Get columns that have dictionary
+     */
     public Set<TblColRef> getAllColumnsHaveDictionary() {
         Set<TblColRef> result = Sets.newLinkedHashSet();
 
@@ -1022,7 +1027,9 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         return result;
     }
 
-    /** Get columns that need dictionary built on it. Note a column could reuse dictionary of another column. */
+    /**
+     * Get columns that need dictionary built on it. Note a column could reuse dictionary of another column.
+     */
     public Set<TblColRef> getAllColumnsNeedDictionaryBuilt() {
         Set<TblColRef> result = getAllColumnsHaveDictionary();
 
@@ -1039,7 +1046,9 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         return result;
     }
 
-    /** A column may reuse dictionary of another column, find the dict column, return same col if there's no reuse column*/
+    /**
+     * A column may reuse dictionary of another column, find the dict column, return same col if there's no reuse column
+     */
     public TblColRef getDictionaryReuseColumn(TblColRef col) {
         if (dictionaries == null) {
             return col;
@@ -1052,7 +1061,9 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         return col;
     }
 
-    /** Get a column which can be used in distributing the source table */
+    /**
+     * Get a column which can be used in distributing the source table
+     */
     public TblColRef getDistributedByColumn() {
         Set<TblColRef> shardBy = getShardByColumns();
         if (shardBy != null && shardBy.size() > 0) {
@@ -1105,4 +1116,11 @@ public class CubeDesc extends RootPersistentEntity implements IEngineAware {
         return newCubeDesc;
     }
 
+    private Collection ensureOrder(Collection c) {
+        TreeSet set = new TreeSet();
+        for (Object o : c)
+            set.add(o.toString());
+        //System.out.println("set:"+set);
+        return set;
+    }
 }
