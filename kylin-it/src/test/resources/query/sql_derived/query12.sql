@@ -16,10 +16,9 @@
 -- limitations under the License.
 --
 
-select lstg_format_name,
- sum(price) as GMV,
- count(1) as TRANS_CNT,
- count(distinct seller_id) as seller_count
- from test_kylin_fact
- group by lstg_format_name
- order by lstg_format_name
+select UPD_USER,count(1) as CNT
+from TEST_KYLIN_FACT  as TEST_KYLIN_FACT
+JOIN TEST_CATEGORY_GROUPINGS as TEST_CATEGORY_GROUPINGS
+ON TEST_KYLIN_FACT.LEAF_CATEG_ID = TEST_CATEGORY_GROUPINGS.LEAF_CATEG_ID AND TEST_KYLIN_FACT.LSTG_SITE_ID = TEST_CATEGORY_GROUPINGS.SITE_ID
+where UPD_USER not in ('USER_Y')
+group by UPD_USER

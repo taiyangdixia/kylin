@@ -38,6 +38,7 @@ import org.apache.kylin.metadata.model.DataModelDesc;
 import org.apache.kylin.metadata.model.IBuildable;
 import org.apache.kylin.metadata.model.ISegment;
 import org.apache.kylin.metadata.model.SegmentStatusEnum;
+import org.apache.kylin.metadata.model.Segments;
 import org.apache.kylin.metadata.model.TblColRef;
 import org.apache.kylin.metadata.realization.IRealization;
 
@@ -217,6 +218,7 @@ public class CubeSegment implements Comparable<CubeSegment>, IBuildable, ISegmen
         this.inputRecordsSize = inputRecordsSize;
     }
 
+    @Override
     public long getLastBuildTime() {
         return lastBuildTime;
     }
@@ -349,28 +351,14 @@ public class CubeSegment implements Comparable<CubeSegment>, IBuildable, ISegmen
         this.sourceOffsetEnd = sourceOffsetEnd;
     }
 
-    public boolean dateRangeOverlaps(CubeSegment seg) {
-        return dateRangeStart < seg.dateRangeEnd && seg.dateRangeStart < dateRangeEnd;
-    }
-
-    public boolean dateRangeContains(CubeSegment seg) {
-        return dateRangeStart <= seg.dateRangeStart && seg.dateRangeEnd <= dateRangeEnd;
-    }
-
     // date range is used in place of source offsets when offsets are missing
     public boolean sourceOffsetOverlaps(CubeSegment seg) {
-        if (isSourceOffsetsOn())
-            return sourceOffsetStart < seg.sourceOffsetEnd && seg.sourceOffsetStart < sourceOffsetEnd;
-        else
-            return dateRangeOverlaps(seg);
+        return Segments.sourceOffsetOverlaps(this, seg);
     }
 
     // date range is used in place of source offsets when offsets are missing
-    public boolean sourceOffsetContains(CubeSegment seg) {
-        if (isSourceOffsetsOn())
-            return sourceOffsetStart <= seg.sourceOffsetStart && seg.sourceOffsetEnd <= sourceOffsetEnd;
-        else
-            return dateRangeContains(seg);
+    public boolean sourceOffsetContains(ISegment seg) {
+        return Segments.sourceOffsetContains(this, seg);
     }
 
     public void validate() {
